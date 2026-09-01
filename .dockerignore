@@ -1,0 +1,11 @@
+.git
+.idea
+node_modules
+vendor
+storage/logs/*
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+bench_mv.php
+docker/data
+docker/redis

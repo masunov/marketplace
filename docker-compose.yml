@@ -1,0 +1,89 @@
+x-build: &build
+  context: .
+  dockerfile: docker/Dockerfile
+
+services:
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: marketplace
+      POSTGRES_USER: marketplace
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - ./docker/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketplace -d marketplace"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass secret
+    volumes:
+      - ./docker/data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "secret", "--no-auth-warning", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: *build
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: &app-env
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: marketplace
+      DB_USERNAME: marketplace
+      DB_PASSWORD: secret
+      QUEUE_CONNECTION: redis
+      CACHE_STORE: redis
+      REDIS_CLIENT: phpredis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: secret
+      APP_URL: http://localhost:8585
+    volumes:
+      - .:/var/www/html
+    command: php artisan migrate --force --seed
+    restart: "no"
+
+  app:
+    build: *build
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *app-env
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "8585:8000"
+
+  queue:
+    build: *build
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *app-env
+    volumes:
+      - .:/var/www/html
+    command: php artisan horizon
+    restart: unless-stopped
+
+  scheduler:
+    build: *build
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *app-env
+    volumes:
+      - .:/var/www/html
+    command: php artisan schedule:work
+    restart: unless-stopped
