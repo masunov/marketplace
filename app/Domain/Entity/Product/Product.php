@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Collection;
 
 class Product extends Model
 {
@@ -30,9 +31,9 @@ class Product extends Model
                     ->orderByPivot('priority');
     }
 
-    public static function findBySku(string $sku): ?self
+    public static function getBySkus(array $skus): Collection
     {
-        return static::query()->where('sku', $sku)->first();
+        return static::query()->whereIn('sku', $skus)->get();
     }
 
 }

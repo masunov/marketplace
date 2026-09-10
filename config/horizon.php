@@ -197,9 +197,13 @@ return [
     */
 
     'defaults' => [
-        'supervisor-1' => [
+
+        'supervisor-delivery' => [
             'connection' => 'redis',
-            'queue' => ['default', 'order-key-delivering-attempt-queue'],
+            'queue' => [
+                'order-key-delivering-attempt-queue',
+                'delivery-paid',
+            ],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,
@@ -210,20 +214,48 @@ return [
             'timeout' => 60,
             'nice' => 0,
         ],
+
+        'supervisor-general' => [
+            'connection' => 'redis',
+            'queue' => [
+                'created-orders-queue',
+                'ps-mir-callback-queue',
+                'order-finalize-queue',
+                'default',
+            ],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => 60,
+            'nice' => 5,
+        ],
+
     ],
 
     'environments' => [
         'production' => [
-            'supervisor-1' => [
-                'maxProcesses' => 10,
+            'supervisor-delivery' => [
+                'maxProcesses' => 12,
+                'balanceMaxShift' => 1,
+                'balanceCooldown' => 3,
+            ],
+            'supervisor-general' => [
+                'maxProcesses' => 6,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
         ],
 
         'local' => [
-            'supervisor-1' => [
-                'maxProcesses' => 3,
+            'supervisor-delivery' => [
+                'maxProcesses' => 6,
+            ],
+            'supervisor-general' => [
+                'maxProcesses' => 4,
             ],
         ],
     ],

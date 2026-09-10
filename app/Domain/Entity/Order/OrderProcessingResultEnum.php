@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace App\Domain\Entity\Order;
 
-use App\Domain\Services\ProductVendors\VendorIssueOutcomeEnum;
-
 enum OrderProcessingResultEnum: string
 {
 
@@ -14,24 +12,15 @@ enum OrderProcessingResultEnum: string
     case ERROR = 'error';
     case OUT_OF_STOCK = 'out_of_stock';
 
-    public static function fromOutcome(VendorIssueOutcomeEnum $outcome): self
-    {
-        return match ($outcome) {
-            VendorIssueOutcomeEnum::SUCCESS      => self::SUCCESS,
-            VendorIssueOutcomeEnum::TIMEOUT      => self::TIMEOUT,
-            VendorIssueOutcomeEnum::ERROR        => self::ERROR,
-            VendorIssueOutcomeEnum::OUT_OF_STOCK => self::OUT_OF_STOCK,
-        };
-    }
+    case FOREIGN_CODE = 'foreign_code';
 
-    public function isAttemptFinished(): bool
-    {
-        return $this !== self::IN_FLIGHT;
-    }
+    case DUPLICATE_CODE = 'duplicate_code';
+
+    case UNVERIFIED = 'unverified';
 
     public function allowsSameVendorRetry(): bool
     {
-        return $this === self::TIMEOUT || $this === self::IN_FLIGHT;
+        return in_array($this, [self::TIMEOUT, self::IN_FLIGHT, self::UNVERIFIED], true);
     }
 
 }

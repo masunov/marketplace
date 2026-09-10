@@ -3,15 +3,11 @@
 namespace App\Domain\Entity\Order;
 
 use App\Domain\Entity\Currency\CurrencyEnum;
-use App\Domain\Entity\Product\Product;
-use App\Domain\Entity\PaymentSystem\PaymentStatusEnum;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 
 class Order extends Model
@@ -25,9 +21,7 @@ class Order extends Model
     protected $casts = [
         'status'                    => OrderStatusEnum::class,
         'currency'                  => CurrencyEnum::class,
-        'price'                     => 'decimal:2',
-        'delivery_cycle_started_at' => 'immutable_datetime',
-        'type'                      => OrderTypeEnum::class,
+        'total_amount'              => 'decimal:2',
     ];
 
     public static function findById(string $id): ?self
@@ -35,49 +29,117 @@ class Order extends Model
         return static::query()->where('id', $id)->first();
     }
 
-    public function product(): BelongsTo
+    public function items(): HasMany
     {
-        return $this->belongsTo(Product::class);
+        return $this->hasMany(OrderItem::class);
     }
 
-    public function relatedContent(): MorphTo
+    public function transactions(): HasMany
     {
-        return $this->morphTo();
+        return $this->hasMany(OrderTransaction::class);
     }
 
-    public function attachRelatedContent(IOrderContent $content): void
+    public function tryTransitionTo(OrderStatusEnum $from, OrderStatusEnum $to, ?string $reason = null): bool
     {
-        $this->relatedContent()->associate($content);
-        $this->save();
-    }
+        return DB::transaction(function () use ($from, $to, $reason): bool {
+            $updated = static::query()
+                             ->whereKey($this->id)
+                             ->where('status', $from->value)
+                             ->update([
+                                 'status'     => $to->value,
+                                 'updated_at' => now(),
+                             ]);
 
-    public function tryTransitionTo(OrderStatusEnum $from, OrderStatusEnum $to): bool
-    {
-        $attributes = [
-            'status'     => $to->value,
-            'updated_at' => now(),
-        ];
+            if ($updated !== 1) {
+                return false;
+            }
 
-        if ($to === OrderStatusEnum::DELIVERING) {
-            $attributes['delivery_cycle_started_at'] = now();
-        }
-
-        $updated = static::query()
-                         ->whereKey($this->getKey())
-                         ->where('status', $from->value)
-                         ->update($attributes);
-
-        if ($updated === 1) {
             $this->setAttribute('status', $to);
             $this->syncOriginalAttribute('status');
 
-            if ($to === OrderStatusEnum::DELIVERING) {
-                $this->setAttribute('delivery_cycle_started_at', $attributes['delivery_cycle_started_at']);
-                $this->syncOriginalAttribute('delivery_cycle_started_at');
-            }
-        }
+            OrderProcessingLog::recordOrderStatus($this, $from, $to, $reason);
 
-        return $updated === 1;
+            return true;
+        });
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    public static function closedWithUnsettledMoney(): \Illuminate\Support\Collection
+    {
+        return collect(DB::select(<<<'SQL'
+            SELECT o.id AS order_id,
+                   o.status,
+                   t.charged,
+                   t.delivered,
+                   t.refunded,
+                   t.charged - t.delivered - t.refunded AS unsettled
+              FROM orders o
+              JOIN LATERAL (
+                  SELECT
+                    coalesce(sum(price) filter (
+                        where type = 'charge' and status = 'succeeded'), 0) AS charged,
+                    coalesce(sum(price) filter (
+                        where type = 'charge' and status = 'succeeded'
+                          and order_item_id in (
+                              select id from order_items where status = 'delivered')), 0) AS delivered,
+                    coalesce(sum(price) filter (
+                        where type = 'refund' and status = 'succeeded'), 0) AS refunded
+                  FROM order_transactions
+                 WHERE order_id = o.id
+              ) t ON true
+             WHERE o.status IN ('delivered', 'partially_delivered', 'refunded')
+               AND abs(t.charged - t.delivered - t.refunded) > 0.005
+             ORDER BY o.updated_at
+        SQL));
+    }
+
+    /** @return Collection<int, self> */
+    public static function unpaidLongerThan(\DateTimeInterface $stale, int $limit): Collection
+    {
+        return static::query()
+                     ->where('status', OrderStatusEnum::CREATED->value)
+                     ->where('created_at', '<=', $stale)
+                     ->orderBy('created_at')
+                     ->limit($limit)
+                     ->get();
+    }
+
+    /** @return Collection<int, self> */
+    public static function recentlyTouched(int $limit): Collection
+    {
+        return static::query()
+                     ->orderByDesc('updated_at')
+                     ->limit($limit)
+                     ->get();
+    }
+
+    /** @return Collection<int, self> */
+    public static function stalledBeforeFinalize(int $limit): Collection
+    {
+        $unfinished = array_map(
+            static fn(OrderItemStatusEnum $status): string => $status->value,
+            array_filter(
+                OrderItemStatusEnum::cases(),
+                static fn(OrderItemStatusEnum $status): bool => !$status->isDeliveryFinished()
+            )
+        );
+
+        return static::query()
+                     ->whereIn('status', [OrderStatusEnum::PAID->value, OrderStatusEnum::DELIVERING->value])
+                     ->whereExists(static function ($query): void {
+                         $query->select(DB::raw(1))
+                               ->from('order_items')
+                               ->whereColumn('order_items.order_id', 'orders.id');
+                     })
+                     ->whereNotExists(static function ($query) use ($unfinished): void {
+                         $query->select(DB::raw(1))
+                               ->from('order_items')
+                               ->whereColumn('order_items.order_id', 'orders.id')
+                               ->whereIn('order_items.status', $unfinished);
+                     })
+                     ->orderBy('updated_at')
+                     ->limit($limit)
+                     ->get();
     }
 
     /**
@@ -97,101 +159,10 @@ class Order extends Model
                      ->get();
     }
 
-    /**
-     * @return Collection<int, self>
-     */
-    public static function paidButNotIssued(\DateTimeInterface $stale): Collection
-    {
-        return static::reconciliationBase()
-                     ->whereExists(static::paidCallbackExists())
-                     ->whereNotExists(static::vendorKeyExists())
-                     ->where('orders.updated_at', '<=', $stale)
-                     ->orderBy('orders.updated_at')
-                     ->get();
-    }
+    /** @return Collection<int, self> */
 
-    /**
-     * @return Collection<int, self>
-     */
-    public static function issuedButNotPaid(): Collection
-    {
-        return static::reconciliationBase()
-                     ->whereExists(static::vendorKeyExists())
-                     ->whereNotExists(static::paidCallbackExists())
-                     ->orderBy('orders.updated_at')
-                     ->get();
-    }
+    /** @return Collection<int, self> */
 
-    /**
-     * @return Collection<int, self>
-     */
-    public static function issuedButNotDelivered(): Collection
-    {
-        return static::reconciliationBase()
-                     ->whereExists(static::vendorKeyExists())
-                     ->where('orders.status', '!=', OrderStatusEnum::DELIVERED->value)
-                     ->orderBy('orders.updated_at')
-                     ->get();
-    }
-
-    public static function sumPaid(): float
-    {
-        return (float) static::query()->whereExists(static::paidCallbackExists())->sum('price');
-    }
-
-    public static function sumPaidAndIssued(): float
-    {
-        return (float) static::query()
-                             ->whereExists(static::paidCallbackExists())
-                             ->whereExists(static::vendorKeyExists())
-                             ->sum('price');
-    }
-
-    public static function sumPaidNotIssued(): float
-    {
-        return (float) static::query()
-                             ->whereExists(static::paidCallbackExists())
-                             ->whereNotExists(static::vendorKeyExists())
-                             ->sum('price');
-    }
-
-    public static function sumIssuedNotPaid(): float
-    {
-        return (float) static::query()
-                             ->whereExists(static::vendorKeyExists())
-                             ->whereNotExists(static::paidCallbackExists())
-                             ->sum('price');
-    }
-
-    private static function reconciliationBase(): Builder
-    {
-        return static::query()->select(
-            'orders.id',
-            'orders.status',
-            'orders.price',
-            'orders.currency',
-            'orders.updated_at'
-        );
-    }
-
-    private static function paidCallbackExists(): \Closure
-    {
-        return static function ($query): void {
-            $query->select(DB::raw(1))
-                  ->from('payment_callback_logs')
-                  ->whereColumn('payment_callback_logs.order_id', 'orders.id')
-                  ->where('payment_callback_logs.payment_status', PaymentStatusEnum::PAID->value)
-                  ->whereNotNull('payment_callback_logs.processed_at');
-        };
-    }
-
-    private static function vendorKeyExists(): \Closure
-    {
-        return static function ($query): void {
-            $query->select(DB::raw(1))
-                  ->from('vendor_keys')
-                  ->whereColumn('vendor_keys.order_id', 'orders.id');
-        };
-    }
+    /** @return Collection<int, self> */
 
 }

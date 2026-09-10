@@ -9,18 +9,12 @@ use App\Domain\Entity\PaymentSystem\PaymentSystemEnum;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
-/**
- * @extends Factory<PaymentCallbackLog>
- */
+/** @extends Factory<PaymentCallbackLog> */
 class PaymentCallbackLogFactory extends Factory
 {
     protected $model = PaymentCallbackLog::class;
 
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function definition(): array
     {
         $callbackId = 'evt_' . Str::lower(Str::random(12));

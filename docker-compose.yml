@@ -10,6 +10,10 @@ services:
       POSTGRES_DB: marketplace
       POSTGRES_USER: marketplace
       POSTGRES_PASSWORD: secret
+      TZ: Europe/Moscow
+      PGTZ: Europe/Moscow
+    ports:
+      - "54322:5432"
     volumes:
       - ./docker/data/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -50,6 +54,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: secret
       APP_URL: http://localhost:8585
+      PS_MIR_CALLBACK_URL: http://app:8000/api/payment_systems/ps_mir/callback
+      TZ: Europe/Moscow
     volumes:
       - .:/var/www/html
     command: php artisan migrate --force --seed

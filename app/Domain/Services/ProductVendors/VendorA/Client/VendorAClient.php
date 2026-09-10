@@ -40,9 +40,7 @@ readonly class VendorAClient
             return IssueKeyResponse::buildForFail($requestId, 'Server error');
         }
 
-
         $key = ExternalVendorKey::issueOrReturnExisting(VendorEnum::VENDOR_A, $sku, $requestId);
-
 
         if ($key) {
 

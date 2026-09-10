@@ -10,9 +10,7 @@ use Illuminate\Support\Str;
 
 class ProductSeeder extends Seeder
 {
-    /**
-     * @return array<int, array<string, mixed>>
-     */
+    /** @return array<int, array<string, mixed>> */
     public static function catalogue(): array
     {
         return [
@@ -28,6 +26,7 @@ class ProductSeeder extends Seeder
             ['sku' => 'GIFT-PSN-1000', 'name' => 'PlayStation Store карта 1000 ₽', 'type' => ProductTypeEnum::GIFTCARD, 'price' => 1000, 'image' => 'assets/psn.png'],
             ['sku' => 'GIFT-XBOX-1500', 'name' => 'Xbox Gift Card 1500 ₽', 'type' => ProductTypeEnum::GIFTCARD, 'price' => 1500, 'image' => 'assets/xbox.png'],
             ['sku' => 'GIFT-ROBLOX-800', 'name' => 'Roblox 800 Robux', 'type' => ProductTypeEnum::GIFTCARD, 'price' => 890, 'image' => 'assets/roblox.png'],
+            ['sku' => 'GIFT-APPSTORE-1000', 'name' => 'AppStore карта 1000 ₽', 'type' => ProductTypeEnum::GIFTCARD, 'price' => 1200, 'image' => 'assets/appstore.png'],
         ];
     }
 
@@ -40,16 +39,14 @@ class ProductSeeder extends Seeder
         );
     }
 
-    /**
-     * @return array<int, array<string, mixed>>
-     */
+    /** @return array<int, array<string, mixed>> */
     private function rows(): array
     {
         $now = now();
 
         return array_map(
             static fn(array $product): array => [
-                'id'         => (string) Str::uuid7(),
+                'id'         => (string)Str::uuid7(),
                 'sku'        => $product['sku'],
                 'name'       => $product['name'],
                 'type'       => $product['type']->value,

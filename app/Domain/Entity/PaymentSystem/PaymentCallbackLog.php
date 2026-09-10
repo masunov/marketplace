@@ -2,6 +2,7 @@
 
 namespace App\Domain\Entity\PaymentSystem;
 
+use App\Domain\Entity\Currency\CurrencyEnum;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,6 +20,7 @@ class PaymentCallbackLog extends Model
     protected $casts = [
         'payment_system' => PaymentSystemEnum::class,
         'payment_status' => PaymentStatusEnum::class,
+        'currency'       => CurrencyEnum::class,
         'payload'        => 'array',
         'amount'         => 'decimal:2',
         'ps_created_at'  => 'immutable_datetime',
@@ -41,9 +43,7 @@ class PaymentCallbackLog extends Model
         $this->save();
     }
 
-    /**
-     * @return Collection<int, self>
-     */
+    /** @return Collection<int, self> */
     public static function unprocessedOlderThan(\DateTimeInterface $stale, int $limit): Collection
     {
         return static::query()
@@ -54,34 +54,22 @@ class PaymentCallbackLog extends Model
                      ->get();
     }
 
-    public static function findByCallbackId(string $callbackId, PaymentSystemEnum $paymentSystem): ?self
-    {
-        return static::query()
-                     ->where('ps_callback_id', $callbackId)
-                     ->where('payment_system', $paymentSystem->value)
-                     ->first();
-    }
-
-    /**
-     * @return \Illuminate\Support\Collection<int, object>
-     */
+    /** @return \Illuminate\Support\Collection<int, object> */
     public static function amountMismatches(): \Illuminate\Support\Collection
     {
         return DB::table('payment_callback_logs as p')
                  ->join('orders as o', 'o.id', '=', 'p.order_id')
-                 ->select('p.ps_callback_id', 'p.order_id', 'p.amount', 'p.currency', 'o.price', 'o.currency as order_currency')
+                 ->select('p.ps_callback_id', 'p.order_id', 'p.amount', 'p.currency', 'o.total_amount', 'o.currency as order_currency')
                  ->where('p.payment_status', PaymentStatusEnum::PAID->value)
                  ->whereNotNull('p.processed_at')
                  ->where(static function ($query): void {
-                     $query->whereColumn('p.amount', '!=', 'o.price')
+                     $query->whereColumn('p.amount', '!=', 'o.total_amount')
                            ->orWhereColumn('p.currency', '!=', 'o.currency');
                  })
                  ->get();
     }
 
-    /**
-     * @return \Illuminate\Support\Collection<int, object>
-     */
+    /** @return \Illuminate\Support\Collection<int, object> */
     public static function unprocessedSummaryOlderThan(\DateTimeInterface $stale): \Illuminate\Support\Collection
     {
         return DB::table('payment_callback_logs')

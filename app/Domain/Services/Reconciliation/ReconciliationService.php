@@ -4,8 +4,11 @@ declare(strict_types=1);
 namespace App\Domain\Services\Reconciliation;
 
 use App\Domain\Entity\Order\Order;
+use App\Domain\Entity\Order\OrderItem;
+use App\Domain\Entity\Order\OrderProcessingLog;
+use App\Domain\Entity\Order\OrderTransaction;
 use App\Domain\Entity\PaymentSystem\PaymentCallbackLog;
-use App\Domain\Entity\ProductVendor\VendorKey;
+use App\Models\ExternalVendorKey;
 
 class ReconciliationService
 {
@@ -15,60 +18,48 @@ class ReconciliationService
 
     }
 
-    /**
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function report(?int $staleMinutes = null): array
     {
         $minutes = $staleMinutes ?? $this->staleMinutes;
         $stale   = now()->subMinutes($minutes);
 
-        $paidNotIssued  = Order::paidButNotIssued($stale);
-        $issuedNotPaid  = Order::issuedButNotPaid();
-        $issuedNotFinal = Order::issuedButNotDelivered();
+        $unsettled      = Order::closedWithUnsettledMoney();
+        $paidNotSettled = OrderItem::paidButNotSettled($stale);
+        $contentStuck   = OrderItem::contentWithoutDeliveredStatus();
+        $rejectedRefund = OrderTransaction::rejectedRefunds();
+        $stalledOrders  = Order::stalledBeforeFinalize(200);
+        $unpaidOrders   = Order::unpaidLongerThan($stale, 200);
         $mismatched     = PaymentCallbackLog::amountMismatches();
         $unprocessed    = PaymentCallbackLog::unprocessedSummaryOlderThan($stale);
-        $orphaned       = VendorKey::orphanedAcrossVendors();
-        $money          = $this->money();
 
-        $anomalies = $paidNotIssued->count()
-                     + $issuedNotPaid->count()
-                     + $issuedNotFinal->count()
+        $anomalies = $unsettled->count()
+                     + $paidNotSettled->count()
+                     + $contentStuck->count()
+                     + $rejectedRefund->count()
+                     + $stalledOrders->count()
                      + $mismatched->count()
-                     + $unprocessed->count()
-                     + $orphaned->count()
-                     + ($money['balanced'] ? 0 : 1);
+                     + $unprocessed->count();
 
         return [
-            'generated_at'          => now()->toIso8601ZuluString(),
-            'stale_minutes'         => $minutes,
-            'anomalies'             => $anomalies,
-            'money'                 => $money,
-            'paid_not_issued'       => $paidNotIssued,
-            'issued_not_paid'       => $issuedNotPaid,
-            'issued_not_delivered'  => $issuedNotFinal,
-            'amount_mismatch'       => $mismatched,
-            'unprocessed_callbacks' => $unprocessed,
-            'orphaned_vendor_keys'  => $orphaned,
-        ];
-    }
+            'generated_at'   => now()->toIso8601String(),
+            'stale_minutes'  => $minutes,
+            'anomalies'      => $anomalies,
+            'money'          => OrderTransaction::balance(),
 
-    /**
-     * @return array<string, mixed>
-     */
-    public function money(): array
-    {
-        $paid          = Order::sumPaid();
-        $delivered     = Order::sumPaidAndIssued();
-        $pending       = Order::sumPaidNotIssued();
-        $issuedNotPaid = Order::sumIssuedNotPaid();
+            'unsettled_closed_orders' => $unsettled,
+            'paid_but_not_settled'    => $paidNotSettled,
+            'content_without_status'  => $contentStuck,
+            'rejected_refunds'        => $rejectedRefund,
+            'stalled_before_finalize' => $stalledOrders,
+            'amount_mismatch'         => $mismatched,
+            'unprocessed_callbacks'   => $unprocessed,
 
-        return [
-            'paid_total'            => round($paid, 2),
-            'delivered_total'       => round($delivered, 2),
-            'pending_total'         => round($pending, 2),
-            'issued_not_paid_total' => round($issuedNotPaid, 2),
-            'balanced'              => abs($paid - ($delivered + $pending)) < 0.01 && abs($issuedNotPaid) < 0.01,
+            'observations'   => [
+                'unpaid_orders'         => $unpaidOrders,
+                'rejected_vendor_codes' => OrderProcessingLog::rejectedCodeSummary($stale),
+                'orphaned_vendor_codes' => ExternalVendorKey::orphanedIssued(),
+            ],
         ];
     }
 

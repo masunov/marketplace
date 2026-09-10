@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\Api\Orders\OrdersController;
 use App\Http\Controllers\Api\PaymentSystems\PsMirController;
+use App\Http\Controllers\Api\Queue\QueueStatusController;
 use App\Http\Controllers\Api\Reconciliation\ReconciliationController;
+use App\Http\Controllers\Api\Reports\ReportsController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -20,3 +22,7 @@ Route::prefix('payment_systems')->group(function () {
 
 
 Route::get('reconciliation', [ReconciliationController::class, 'index']);
+
+Route::get('queue/status', [QueueStatusController::class, 'index']);
+
+Route::get('reports', [ReportsController::class, 'index']);
