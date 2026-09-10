@@ -8,5 +8,6 @@ enum VendorEnum: string
 
     case VENDOR_A = 'vendor_a';
     case VENDOR_B = 'vendor_b';
+    case VENDOR_C = 'vendor_c';
 
 }

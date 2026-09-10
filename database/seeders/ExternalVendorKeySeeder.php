@@ -7,14 +7,13 @@ use App\Domain\Entity\ProductVendor\VendorEnum;
 use App\Models\ExternalVendorKey;
 use App\Models\ExternalVendorKeyStatusEnum;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 class ExternalVendorKeySeeder extends Seeder
 {
 
-    /**
-     * @return array<string, array<int, string>>
-     */
+    /** @return array<string, array<int, string>> */
     private function poolsByVendor(): array
     {
         $keys = [
@@ -30,11 +29,28 @@ class ExternalVendorKeySeeder extends Seeder
             'ARQK-FML4-A14E', '7Z6K-NO9V-MPJB', 'D4K7-IJSG-N853', 'W67T-ZB0Q-1XKB', '7EQM-K09J-XKUO',
         ];
 
-        $half = (int) ceil(count($keys) / 2);
+        $half = (int)ceil(count($keys) / 2);
+        $size = $this->poolSize();
 
         return [
-            VendorEnum::VENDOR_A->value => array_slice($keys, 0, $half),
-            VendorEnum::VENDOR_B->value => array_slice($keys, $half),
+            VendorEnum::VENDOR_A->value => [
+                ProductTypeEnum::GIFTCARD->value => Collection::times($size, fn() => $this->generateKey(segments: 4, segmentLength: 5))->all(),
+                ProductTypeEnum::KEY->value      => array_merge(
+                    array_slice($keys, 0, $half),
+                    Collection::times($size - $half, fn() => $this->generateKey())->all()
+                )
+            ],
+            VendorEnum::VENDOR_B->value => [
+                ProductTypeEnum::GIFTCARD->value => Collection::times($size, fn() => $this->generateKey(segments: 4, segmentLength: 5))->all(),
+                ProductTypeEnum::KEY->value      => array_merge(
+                    array_slice($keys, $half),
+                    Collection::times($size - $half, fn() => $this->generateKey())->all()
+                )
+            ],
+            VendorEnum::VENDOR_C->value => [
+                ProductTypeEnum::GIFTCARD->value => Collection::times($size, fn() => $this->generateKey(segments: 4, segmentLength: 5))->all(),
+                ProductTypeEnum::KEY->value      => Collection::times($size, fn() => $this->generateKey())->all()
+            ],
         ];
     }
 
@@ -43,35 +59,58 @@ class ExternalVendorKeySeeder extends Seeder
         ExternalVendorKey::query()->insertOrIgnore($this->rows());
     }
 
-    /**
-     * @return array<int, array<string, mixed>>
-     */
+    /** @return array<int, array<string, mixed>> */
     private function rows(): array
     {
-        $skus = [
-            'KEY-CS2-PRIME',
-            'KEY-GTA5',
-            'KEY-EFT',
+        $skusList = [
+            ProductTypeEnum::GIFTCARD->value => [
+                'GIFT-PSN-1000',
+                'GIFT-XBOX-1500',
+                'GIFT-ROBLOX-800',
+            ],
+            ProductTypeEnum::KEY->value      => [
+                'KEY-CS2-PRIME',
+                'KEY-GTA5',
+                'KEY-EFT',
+            ]
         ];
-        $now  = now();
-        $rows = [];
-        $index = 0;
+        $now      = now();
+        $rows     = [];
+        $index    = 0;
 
-        foreach ($this->poolsByVendor() as $vendorName => $keys) {
-            foreach ($keys as $key) {
-                $rows[] = [
-                    'id'          => (string) Str::uuid7(),
-                    'key'         => $key,
-                    'sku'         => $skus[$index++ % count($skus)],
-                    'vendor_name' => $vendorName,
-                    'status'      => ExternalVendorKeyStatusEnum::AVAILABLE->value,
-                    'request_id'  => null,
-                    'created_at'  => $now,
-                    'updated_at'  => $now,
-                ];
+        foreach ($this->poolsByVendor() as $vendorName => $productKeys) {
+            foreach ($skusList as $productType => $skus) {
+                if ($vendorName === VendorEnum::VENDOR_C->value && $productType === ProductTypeEnum::GIFTCARD->value) {
+                    $skus[] = 'GIFT-APPSTORE-1000';
+                }
+                foreach ($productKeys[$productType] as $key) {
+                    $rows[] = [
+                        'id'          => (string)Str::uuid7(),
+                        'key'         => $key,
+                        'sku'         => $skus[$index++ % count($skus)],
+                        'vendor_name' => $vendorName,
+                        'status'      => ExternalVendorKeyStatusEnum::AVAILABLE->value,
+                        'request_id'  => null,
+                        'created_at'  => $now,
+                        'updated_at'  => $now,
+                    ];
+                }
             }
         }
 
         return $rows;
     }
+
+    private function poolSize(): int
+    {
+        return (int) env('VENDOR_POOL_SIZE', 300);
+    }
+
+    private function generateKey(int $segments = 3, int $segmentLength = 4): string
+    {
+        return collect(range(1, $segments))
+            ->map(fn() => Str::upper(Str::random($segmentLength)))
+            ->implode('-');
+    }
+
 }

@@ -10,9 +10,7 @@ interface IOrderContent
 
     public static function morphAlias(): string;
 
-    /**
-     * @return array<int, ProductTypeEnum>
-     */
+    /** @return array<int, ProductTypeEnum> */
     public static function supportedProductTypes(): array;
 
     public function contentValue(): string;

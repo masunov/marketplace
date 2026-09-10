@@ -5,9 +5,6 @@ use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         DB::statement(<<<'SQL'
@@ -17,9 +14,6 @@ return new class extends Migration
         SQL);
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         DB::statement('DROP INDEX IF EXISTS external_vendor_keys_available_idx');

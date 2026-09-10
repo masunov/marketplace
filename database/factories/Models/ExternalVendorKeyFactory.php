@@ -7,18 +7,12 @@ use App\Models\ExternalVendorKey;
 use App\Models\ExternalVendorKeyStatusEnum;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends Factory<ExternalVendorKey>
- */
+/** @extends Factory<ExternalVendorKey> */
 class ExternalVendorKeyFactory extends Factory
 {
     protected $model = ExternalVendorKey::class;
 
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function definition(): array
     {
         return [

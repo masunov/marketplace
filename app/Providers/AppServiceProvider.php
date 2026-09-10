@@ -2,27 +2,17 @@
 
 namespace App\Providers;
 
-use App\Domain\Entity\Order\OrderStatusEnum;
-use App\Domain\Entity\ProductVendor\VendorKey;
-use App\Listeners\Orders\LogOrderStatusChangeListener;
+use App\Domain\Factories\OrderContent\OrderContentFactory;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\ServeCommand;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
-        //
     }
 
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
         ServeCommand::$passthroughVariables = array_unique(array_merge(
@@ -35,16 +25,7 @@ class AppServiceProvider extends ServiceProvider
             ]
         ));
 
-        Relation::enforceMorphMap([
-            VendorKey::morphAlias() => VendorKey::class,
-        ]);
+        Relation::enforceMorphMap(OrderContentFactory::morphMap());
 
-        Event::listen(
-            array_map(
-                static fn(OrderStatusEnum $status): string => $status->event(),
-                OrderStatusEnum::cases()
-            ),
-            LogOrderStatusChangeListener::class
-        );
     }
 }

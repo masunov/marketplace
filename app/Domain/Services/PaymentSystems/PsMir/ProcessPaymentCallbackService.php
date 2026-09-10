@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace App\Domain\Services\PaymentSystems\PsMir;
 
 use App\Domain\Entity\Order\Order;
+use App\Domain\Entity\Order\OrderItem;
+use App\Domain\Entity\Order\OrderTransaction;
 use App\Domain\Entity\Order\OrderStatusEnum;
 use App\Domain\Entity\PaymentSystem\PaymentCallbackLog;
 use App\Domain\Entity\PaymentSystem\PaymentStatusEnum;
@@ -32,6 +34,16 @@ class ProcessPaymentCallbackService
             return;
         }
 
+        $this->applyWithLock($log, $dto);
+    }
+
+    public function applyStored(PaymentCallbackLog $log): void
+    {
+        $this->applyWithLock($log, PaymentCallbackDto::fromLog($log));
+    }
+
+    private function applyWithLock(PaymentCallbackLog $log, PaymentCallbackDto $dto): void
+    {
         $lock = Cache::lock($this->lockKey($dto->orderId), $this->lockTtlSeconds);
 
         if (!$lock->get()) {
@@ -102,6 +114,11 @@ class ProcessPaymentCallbackService
             : OrderStatusEnum::PAYMENT_FAILED;
 
         $transitioned = $order->tryTransitionTo(OrderStatusEnum::CREATED, $target);
+
+        if ($transitioned && $target === OrderStatusEnum::PAID) {
+            $this->recordCharges($order, $dto);
+        }
+
         $log->markProcessed();
 
         if (!$transitioned) {
@@ -112,13 +129,22 @@ class ProcessPaymentCallbackService
 
         Log::info('payment.callback.applied', $this->context($dto, $order));
 
-        return new ($target->event())($order->getKey(), OrderStatusEnum::CREATED, null, $dto->createdAt);
+        return new ($target->event())($order->id, OrderStatusEnum::CREATED, null, $dto->createdAt);
+    }
+
+    private function recordCharges(Order $order, PaymentCallbackDto $dto): void
+    {
+        OrderTransaction::chargeItems(
+            OrderItem::forOrder($order->id),
+            $dto->createdAt,
+            $dto->callbackId
+        );
     }
 
     private function amountMatches(Order $order, PaymentCallbackDto $dto): bool
     {
         return $order->currency === $dto->currency
-               && bccomp((string)$order->price, $dto->amount, 2) === 0;
+               && bccomp((string)$order->total_amount, $dto->amount, 2) === 0;
     }
 
     private function lockKey(string $orderId): string

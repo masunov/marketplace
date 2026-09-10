@@ -7,9 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::table('products', function (Blueprint $table): void {
@@ -23,9 +20,6 @@ return new class extends Migration
         SQL);
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         DB::statement('DROP INDEX IF EXISTS products_showcase_idx');

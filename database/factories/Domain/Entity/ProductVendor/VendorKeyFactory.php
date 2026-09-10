@@ -5,20 +5,13 @@ namespace Database\Factories\Domain\Entity\ProductVendor;
 use App\Domain\Entity\ProductVendor\VendorKey;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends Factory<VendorKey>
- */
+/** @extends Factory<VendorKey> */
 class VendorKeyFactory extends Factory
 {
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function definition(): array
     {
         return [
-            //
         ];
     }
 }

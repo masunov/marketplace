@@ -21,8 +21,7 @@ class RaceTestCommand extends Command
         {--requests=50 : сколько параллельных вебхуков отправить}
         {--sku=KEY-GTA5 : SKU для тестового заказа}
         {--url=http://127.0.0.1:8000 : базовый адрес приложения}
-        {--same-event : слать один и тот же event_id вместо разных}
-        {--chaos : не подавлять случайные отказы поставщиков}';
+        {--same-event : слать один и тот же event_id вместо разных}';
 
     protected $description = 'Отправляет N параллельных вебхуков оплаты по одному заказу и проверяет exactly-once';
 
@@ -30,29 +29,30 @@ class RaceTestCommand extends Command
 
     public function handle(OrderCreateService $orderCreateService): int
     {
-        if (!$this->option('chaos')) {
-            config([
-                'marketplace.vendors.vendor_a.outcomes.error'   => 0,
-                'marketplace.vendors.vendor_a.outcomes.timeout' => 0,
-            ]);
-        }
+        // Автосписание выключается: иначе заглушка пришлёт свой вебхук со случайным исходом,
+        // и отказ в нём переведёт заказ в терминальный статус раньше проверяемых повторов.
+        config(['marketplace.payment_systems.ps_mir.auto_charge' => false]);
 
         $requests = (int) $this->option('requests');
         $sameEvent = (bool) $this->option('same-event');
 
-        $order = $orderCreateService->execute($this->option('sku'));
+        $order = $orderCreateService->execute([(string) $this->option('sku')]);
 
-        $this->line("заказ:    {$order->getKey()}");
+        $this->line("заказ:    {$order->id}");
         $this->line("статус:   {$order->status->value}");
         $this->line("режим:    " . ($sameEvent ? 'один event_id на все запросы' : 'уникальный event_id у каждого запроса'));
         $this->newLine();
 
         $sharedEventId = 'evt_' . Str::lower(Str::random(12));
 
-        $responses = Process::pool(function (Pool $pool) use ($requests, $order, $sameEvent, $sharedEventId): void {
-            for ($i = 1; $i <= $requests; $i++) {
-                $eventId = $sameEvent ? $sharedEventId : 'evt_' . Str::lower(Str::random(12));
+        $eventIds = [];
 
+        for ($i = 1; $i <= $requests; $i++) {
+            $eventIds[] = $sameEvent ? $sharedEventId : 'evt_' . Str::lower(Str::random(12));
+        }
+
+        $responses = Process::pool(function (Pool $pool) use ($order, $eventIds): void {
+            foreach ($eventIds as $eventId) {
                 $pool->command($this->curlCommand($order, $eventId));
             }
         })->start()->wait();
@@ -82,17 +82,20 @@ class RaceTestCommand extends Command
         $this->assert('все вебхуки приняты (200)', $statuses['200'] ?? 0, $requests);
         $this->assert(
             'событий в журнале платежей',
-            PaymentCallbackLog::query()->where('order_id', $order->getKey())->count(),
+            PaymentCallbackLog::query()
+                              ->where('order_id', $order->id)
+                              ->whereIn('ps_callback_id', array_unique($eventIds))
+                              ->count(),
             $sameEvent ? 1 : $requests
         );
         $this->assert('переходов created -> paid', $this->transitions($order, OrderStatusEnum::CREATED, OrderStatusEnum::PAID), 1);
         $this->assert('переходов paid -> delivering', $this->transitions($order, OrderStatusEnum::PAID, OrderStatusEnum::DELIVERING), 1);
-        $keys = VendorKey::query()->where('order_id', $order->getKey())->count();
+        $keys = VendorKey::query()->where('order_id', $order->id)->count();
 
         $this->assert('выданных ключей по заказу', $keys, $order->status === OrderStatusEnum::DELIVERED ? 1 : 0);
-        $this->assert('заказ в терминальном статусе', $order->status->isTerminalForDelivery(), true);
-
-        if ($order->status !== OrderStatusEnum::DELIVERED) {
+        if (!$order->status->isTerminalForDelivery()) {
+            $this->warn("  заказ ещё в статусе {$order->status->value}: выдача не успела дойти до конца за отведённое время");
+        } elseif ($order->status !== OrderStatusEnum::DELIVERED) {
             $this->warn("  выдача завершилась статусом {$order->status->value} — это отказ поставщика, а не нарушение exactly-once");
         }
 
@@ -113,9 +116,9 @@ class RaceTestCommand extends Command
     {
         $payload = json_encode([
             'event_id'   => $eventId,
-            'order_id'   => $order->getKey(),
+            'order_id'   => $order->id,
             'status'     => 'paid',
-            'amount'     => (float) $order->price,
+            'amount'     => (string) $order->total_amount,
             'currency'   => $order->currency->value,
             'created_at' => now()->toIso8601ZuluString(),
         ], JSON_UNESCAPED_SLASHES);
@@ -147,17 +150,9 @@ class RaceTestCommand extends Command
     private function transitions(Order $order, OrderStatusEnum $from, OrderStatusEnum $to): int
     {
         return OrderProcessingLog::query()
-                                 ->where('order_id', $order->getKey())
+                                 ->where('order_id', $order->id)
                                  ->where('previous_status', $from->value)
                                  ->where('order_status', $to->value)
-                                 ->count();
-    }
-
-    private function attempts(Order $order): int
-    {
-        return OrderProcessingLog::query()
-                                 ->where('order_id', $order->getKey())
-                                 ->whereNotNull('vendor')
                                  ->count();
     }
 

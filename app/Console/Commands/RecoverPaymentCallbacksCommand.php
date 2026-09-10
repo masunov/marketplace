@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Domain\Entity\PaymentSystem\PaymentCallbackLog;
-use App\Domain\Services\PaymentSystems\PsMir\Dto\PaymentCallbackDto;
 use App\Domain\Services\PaymentSystems\PsMir\ProcessPaymentCallbackService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -37,6 +36,7 @@ class RecoverPaymentCallbacksCommand extends Command
 
         $applied = 0;
         $pending = 0;
+        $failed  = 0;
 
         foreach ($callbacks as $callback) {
             if ($dryRun) {
@@ -46,9 +46,20 @@ class RecoverPaymentCallbacksCommand extends Command
                 continue;
             }
 
-            $processPaymentCallbackService->execute(
-                PaymentCallbackDto::fromArray($callback->payment_system, $callback->payload)
-            );
+            try {
+                $processPaymentCallbackService->applyStored($callback);
+            } catch (\Throwable $e) {
+                Log::error('payment.callback.recover_failed', [
+                    'event_id' => $callback->ps_callback_id,
+                    'order_id' => $callback->order_id,
+                    'error'    => $e->getMessage(),
+                ]);
+
+                $this->warn("  {$callback->ps_callback_id}: {$e->getMessage()}");
+                $failed++;
+
+                continue;
+            }
 
             $callback->refresh();
 
@@ -68,6 +79,12 @@ class RecoverPaymentCallbacksCommand extends Command
 
         $this->line("применено: {$applied}");
         $this->line("все еще ждут заказ: {$pending}");
+
+        if ($failed > 0) {
+            $this->error("не удалось применить: {$failed}");
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }

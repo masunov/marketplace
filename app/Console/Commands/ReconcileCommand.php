@@ -27,21 +27,37 @@ class ReconcileCommand extends Command
 
         $money = $report['money'];
 
-        $this->line('<comment>денежный итог</comment>');
-        $this->line(sprintf('  оплачено             %10s', number_format($money['paid_total'], 2, '.', ' ')));
+        $this->info('денежный итог');
+        $this->line(sprintf('  оплачено             %10s', number_format($money['charged_total'], 2, '.', ' ')));
         $this->line(sprintf('  из них выдано        %10s', number_format($money['delivered_total'], 2, '.', ' ')));
-        $this->line(sprintf('  ждет выдачи          %10s', number_format($money['pending_total'], 2, '.', ' ')));
-        $this->line(sprintf('  выдано без оплаты    %10s', number_format($money['issued_not_paid_total'], 2, '.', ' ')));
-        $this->line('  сходится: ' . ($money['balanced'] ? '<info>да</info>' : '<error>НЕТ</error>'));
+        $this->line(sprintf('  возвращено           %10s', number_format($money['refunded_total'], 2, '.', ' ')));
+        $this->line(sprintf('  еще в работе         %10s', number_format($money['in_flight_total'], 2, '.', ' ')));
+        $this->newLine();
 
-        $this->section('оплачен, но не выдан', $report['paid_not_issued'], ['id', 'status', 'price', 'updated_at']);
-        $this->section('выдан, но не оплачен', $report['issued_not_paid'], ['id', 'status', 'price', 'updated_at']);
-        $this->section('ключ выдан, статус не delivered', $report['issued_not_delivered'], ['id', 'status', 'price']);
-        $this->section('расхождение суммы', $report['amount_mismatch'], ['ps_callback_id', 'order_id', 'amount', 'price']);
-        $this->section('необработанные вебхуки', $report['unprocessed_callbacks'], ['ps_callback_id', 'order_id', 'payment_status', 'created_at']);
-        $this->section('код сожжен у другого поставщика', $report['orphaned_vendor_keys'], ['order_id', 'delivered_by', 'delivered_key', 'burned_at', 'burned_key']);
+        $this->section('заказ закрыт, деньги не разнесены', $report['unsettled_closed_orders'],
+            ['order_id', 'status', 'charged', 'delivered', 'refunded', 'unsettled']);
+        $this->section('оплачено, но ни кода ни возврата', $report['paid_but_not_settled'],
+            ['id', 'order_id', 'status', 'price', 'updated_at']);
+        $this->section('контент выдан, статус не delivered', $report['content_without_status'],
+            ['id', 'order_id', 'status']);
+        $this->section('платежная система отказала в возврате', $report['rejected_refunds'],
+            ['order_item_id', 'price', 'failed_reason', 'processed_at']);
+        $this->section('позиции отработали, заказ не закрыт', $report['stalled_before_finalize'],
+            ['id', 'status', 'total_amount']);
+        $this->section('расхождение суммы', $report['amount_mismatch'],
+            ['ps_callback_id', 'order_id', 'amount']);
+        $this->section('необработанные вебхуки', $report['unprocessed_callbacks'],
+            ['ps_callback_id', 'order_id', 'payment_status', 'created_at']);
 
         $this->newLine();
+        $this->info('наблюдения (разбираются автоматически)');
+        $this->section('оплата не подтвердилась, похоже на потерянный вебхук',
+            $report['observations']['unpaid_orders'], ['id', 'total_amount', 'created_at']);
+        $this->section('коды поставщиков отвергнуты',
+            $report['observations']['rejected_vendor_codes'], ['vendor', 'result', 'count']);
+        $this->section('код сожжен у поставщика, но не выдан',
+            $report['observations']['orphaned_vendor_codes'],
+            ['vendor_name', 'sku', 'key', 'attempt_request_id']);
 
         if ($report['anomalies'] > 0) {
             $this->error("расхождений: {$report['anomalies']}");
